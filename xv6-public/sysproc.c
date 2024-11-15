@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "wmap.h"
 
 int
 sys_fork(void)
@@ -91,11 +92,52 @@ sys_uptime(void)
 }
 
 uint wmap(void) {
+  int addr;
+  // use a argint here to retrieve int n argument
+  if (argint(0, &addr) < 0)
+  {
+    return -1; // Failed fetching value to integer
+  }
+
+  int length;
+  // use a argint here to retrieve int n argument
+  if (argint(1, &length) < 0)
+  {
+    return -1; // Failed fetching value to integer
+  }
+
+  int flags;
+  // use a argint here to retrieve int n argument
+  if (argint(2, &flags) < 0)
+  {
+    return -1; // Failed fetching value to integer
+  }
+
+  int fd;
+  // use a argint here to retrieve int n argument
+  if (argint(3, &fd) < 0)
+  {
+    return -1; // Failed fetching value to integer
+  }
+
   return 100000;
 }
 
 uint va2pa(void) {
-  return 180000;
+  int va;
+  // use a argint here to retrieve int n argument
+  if (argint(0, &va) < 0)
+  {
+    return -1; // Failed fetching value to integer
+  }
+
+  int pa = va - KERNBASE;
+  if (pa < 0x60000000 || pa > 0x80000000)
+  {
+    return -1; //TODO what is correct return value. Fariha said on piazza said "it should return failure"
+  }
+
+  return pa; 
 }
 
 int wunmap(void) {
