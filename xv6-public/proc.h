@@ -1,3 +1,13 @@
+#define MAX_MMAPS 16
+
+//metadata to manage memory maps
+struct mmap_region {
+    uint addr;       // Starting virtual address
+    int length;      // Size of the mapping
+    int flags;       // Flags for the mapping (e.g., MAP_SHARED)
+    int used;        // Indicates if this region is active, 1 if used
+};
+
 // Per-CPU state
 struct cpu {
   uchar apicid;                // Local APIC ID
@@ -49,6 +59,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct mmap_region mmap[MAX_MMAPS]; // Array of memory mappings
 };
 
 // Process memory is laid out contiguously, low addresses first:
