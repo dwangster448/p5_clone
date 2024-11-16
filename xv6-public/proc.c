@@ -7,6 +7,9 @@
 #include "proc.h"
 #include "spinlock.h"
 
+int total_mmaps = 0;
+int n_loaded_pages = 0;
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -111,6 +114,14 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
+
+
+  p->total_mmaps = 0;
+  for (int i = 0; i < MAX_WMAP_INFO; i++) {
+    p->wmap.addr[i] = -1;            // Invalid address
+    p->wmap.length[i] = -1;                 // Invalid length
+    p->wmap.n_loaded_pages[i] = -1;         // Invalid page count
+  }
 
   return p;
 }

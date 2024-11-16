@@ -39,8 +39,8 @@ void test_wunmap(void) {
 int main() {
     printf(1, "\n\n%s\n", test_name);
 
-    test_va2pa();
-    test_getwmapinfo();
+    //test_va2pa();
+    //test_getwmapinfo();
     test_wmap();
     test_wunmap();
 

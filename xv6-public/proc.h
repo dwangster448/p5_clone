@@ -1,4 +1,7 @@
+#include "wmap.h"
+
 #define MAX_MMAPS 16
+#define MAX_WMAP_INFO 16
 
 //metadata to manage memory maps
 struct mmap_region {
@@ -6,6 +9,8 @@ struct mmap_region {
     int length;      // Size of the mapping
     int flags;       // Flags for the mapping (e.g., MAP_SHARED)
     int used;        // Indicates if this region is active, 1 if used
+    int fd;          // The file descriptor
+    int n_loaded_pages; //Updates whenever this memory region is being allocated in trap.c
 };
 
 // Per-CPU state
@@ -22,6 +27,8 @@ struct cpu {
 
 extern struct cpu cpus[NCPU];
 extern int ncpu;
+extern int total_mmaps;
+extern int n_loaded_pages;
 
 //PAGEBREAK: 17
 // Saved registers for kernel context switches.
@@ -60,6 +67,9 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   struct mmap_region mmap[MAX_MMAPS]; // Array of memory mappings
+
+  struct wmapinfo wmap;             // Memory map information
+  int total_mmaps;                  // Number of memory maps
 };
 
 // Process memory is laid out contiguously, low addresses first:

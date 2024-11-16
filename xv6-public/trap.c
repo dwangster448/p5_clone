@@ -7,12 +7,17 @@
 #include "x86.h"
 #include "traps.h"
 #include "spinlock.h"
+#include "wmap.h"
+
+int file_read(int fd, void *buf, int nbytes, int offset);
+// struct file* get_file_by_fd(int fd);
 
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
 extern uint vectors[]; // in vectors.S: array of 256 entry pointers
 struct spinlock tickslock;
 uint ticks;
+int MAX_OPEN_FILES = 16;
 
 void tvinit(void)
 {
@@ -91,35 +96,71 @@ void trap(struct trapframe *tf)
 
     for (int i = 0; i < MAX_MMAPS; i++)
     {
-      struct mmap_region *mmap = &p->mmap[i];
+      struct mmap_region *mmap = &p->mmap[i]; // TODO What are we supposed to do for n_loaded_pages
       if (mmap->used &&
           fault_addr >= mmap->addr &&
           fault_addr < mmap->addr + mmap->length)
       {
 
-        found = 1; // We found a valid memory region in memory map
+        found = 1; // We found the valid memory region in memory map
 
-        // Allocate a new page for the faulting address
+        // Align the fault address to the page boundary
+        uint page_start = PGROUNDDOWN(fault_addr);
+
+        // Allocate a physical page
         char *mem = kalloc();
-        if (!mem)
+        if (mem == 0)
         {
-          cprintf("trap: lazy allocation failed\n");
+          cprintf("Lazy allocation failed: out of memory\n");
           p->killed = 1;
           break;
         }
 
-        memset(mem, 0, PGSIZE); // Zero-initialize the page
-
-        uint aligned_addr = PGROUNDDOWN(fault_addr);
-        if (mappages(p->pgdir, (char *)aligned_addr, PGSIZE, V2P(mem), PTE_W | PTE_U) < 0)
+        // Zero out the page and map it into the process's address space
+        memset(mem, 0, PGSIZE);
+        if (mappages(p->pgdir, (char *)page_start, PGSIZE, V2P(mem), PTE_W | PTE_U) < 0)
         {
-          cprintf("trap: lazy allocation mapping failed\n");
-          kfree(mem); // Free the allocated page
+          cprintf("Lazy allocation failed: mappages failed\n");
+          kfree(mem);
           p->killed = 1;
           break;
         }
 
-        break;
+        //Map anonymous is not set, proceed to perform file back mapping with fd parameter: mmap->fd
+        if (!(mmap->flags & MAP_ANONYMOUS)) {
+          // Consider fd
+        }
+        else {
+          // Don't need to consider fd. It's NOT File-backed mapping
+        }
+        // Map the physical memory to the faulting virtual address
+        // uint aligned_addr = PGROUNDDOWN(fault_addr);
+        // if (mappages(p->pgdir, (char *)aligned_addr, PGSIZE, V2P(mem), PTE_W | PTE_U) < 0)
+        // {
+        //   cprintf("trap: lazy allocation mapping failed\n");
+        //   kfree(mem); // Free the allocated page
+        //   p->killed = 1;
+        //   break;
+        // }
+
+        // if (mmap->fd != 0) // There is an associated file descriptor for file back mapping
+        // {
+        //   // The important part: Read the data from the file (using the file descriptor)
+        //   int offset = fault_addr - mmap->addr; // Calculate the offset from the mapped address
+        //   int fd = mmap->fd;                    // Get the file descriptor from the mapping
+
+        //   // Read data from the file into the allocated memory page
+        //   int bytes_read = file_read(fd, mem, PGSIZE, offset); //TODO implement file_read to get file data into virtual memory
+        //   if (bytes_read < 0)
+        //   {
+        //     cprintf("trap: file read failed\n");
+        //     kfree(mem); // Free the allocated page on read failure
+        //     p->killed = 1;
+        //     break;
+        //   }
+        // }
+
+        // break;
       }
     }
 
@@ -129,7 +170,6 @@ void trap(struct trapframe *tf)
       cprintf("Segmentation Fault: Fault address 0x%x\n", fault_addr);
       p->killed = 1; // Mark the process for termination
     } // kill the process
-    
 
   // PAGEBREAK: 13
   default:
@@ -164,3 +204,36 @@ void trap(struct trapframe *tf)
   if (myproc() && myproc()->killed && (tf->cs & 3) == DPL_USER)
     exit();
 }
+
+int file_read(int fd, void *buf, int nbytes, int offset)
+{
+  int bytes_read = 0; // TODO comment this out later for full implemention
+
+  // struct file *f = get_file_by_fd(fd);  // Look up the file using fd
+  // if (f == 0) {
+  //     return -1;  // Error: File not found
+  // }
+
+  // // Move the file pointer to the right offset
+  // fseek(f, offset);
+
+  // // Read data into the buffer (mem in our case)
+  // int bytes_read = fread(f, buf, nbytes);
+
+  return bytes_read; // Return the number of bytes successfully read
+}
+
+// struct file* get_file_by_fd(int fd) {
+//     struct proc *p = myproc(); // Get the current process (you likely have a function like myproc() that returns the current process)
+
+//     if (p == 0 || fd < 0 || fd >= MAX_OPEN_FILES) {
+//         return FAILED; // Invalid process or file descriptor out of range
+//     }
+
+//     struct file *f = p->ofile[fd];  // p->ofile is the file descriptor table
+//     if (f == 0) {
+//         return FAILED; // File descriptor is not in use
+//     }
+
+//     return f;  // Return the file structure
+// }

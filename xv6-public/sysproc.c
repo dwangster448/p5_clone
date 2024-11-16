@@ -1,12 +1,16 @@
 #include "types.h"
 #include "x86.h"
+#include "mmu.h"
 #include "defs.h"
 #include "date.h"
 #include "param.h"
 #include "memlayout.h"
-#include "mmu.h"
 #include "proc.h"
 #include "wmap.h"
+
+uint find_free_mmap_space(struct proc *p, int length);
+int check_fixed(struct proc p, uint addr, int length);
+uint suggestive_address(struct proc *p, uint addr, int length);
 
 int sys_fork(void)
 {
@@ -88,11 +92,13 @@ int sys_uptime(void)
 uint wmap(void)
 {
   uint addr;
+  int int_addr;
   // use a argint here to retrieve int n argument
-  if (argint(0, &addr) < 0)
+  if (argint(0, &int_addr) < 0)
   {
     return FAILED; // Failed fetching value to integer
   }
+  addr = (uint)int_addr;
 
   int length;
   // use a argint here to retrieve int n argument
@@ -123,7 +129,8 @@ uint wmap(void)
   // Begin condition checking based on if MAP_FIXED is set
   if (flags & MAP_FIXED)
   {
-    if (check_fixed(p, addr, length) == FAILED)
+    int result = check_fixed(*p, addr, length);
+    if (result == FAILED)
     { // use helper function to check whether fixed address is valid
       return FAILED;
     }
@@ -136,16 +143,8 @@ uint wmap(void)
       return FAILED; // No suitable address found
     }
   }
-  // Begin checking if address is valid in suggestive use
-  else if (addr == 0)
-  {
-    addr = find_free_mmap_space(p, length);
-    if (addr == 0)
-      return FAILED; // No suitable space found
-  }
-  // Handle suggestive use of addr
   else
-  {
+  { // Handle suggestive use of addr
     addr = suggestive_address(p, addr, length);
     if (addr == 0)
       return FAILED; // Address hint is invalid and no suitable space found
@@ -158,8 +157,10 @@ uint wmap(void)
       p->mmap[i].addr = addr;
       p->mmap[i].length = length;
       p->mmap[i].flags = flags;
+      p->mmap[i].fd = fd; // Store the file descriptor for file-backed mapping
       p->mmap[i].used = 1;
 
+      total_mmaps++;
       return addr; // return the current add
     }
   }
@@ -176,16 +177,11 @@ uint va2pa(void)
     return FAILED; // Failed fetching value to integer
   }
 
-  if (va < 0x60000000 || va > 0x80000000)
-  {
-    return FAILED; // TODO what is correct return value. Fariha said on piazza said "it should return failure"
-  }
-
   uint pt_index = va & 0xFFFFF000;
 
   uint offset = va & 0x00000FFF;
 
-  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)pt_index, 0);
+  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)pt_index, 0); //TODO check pde_t pte_t type check
 
   uint physical_address = *pte + offset;
 
@@ -199,6 +195,27 @@ int wunmap(void)
 
 int getwmapinfo(void)
 {
+  struct wmapinfo *info;
+
+  if (argptr(0, (char **)&info, sizeof(info)) < 0)
+  {
+    return FAILED;
+  }
+
+  struct proc *p = myproc();
+
+  if (p == 0)
+  {
+    return FAILED;
+  }
+
+  for (int i = 0; i < MAX_WMMAP_INFO; i++)
+          if (p->mmap[i].used)  // If the mmap entry is used
+        {
+            info->addr[i] = p->mmap[i].addr;          // Copy the starting address
+            info->length[i] = p->mmap[i].length;      // Copy the length
+            info->n_loaded_pages[i] = p->mmap[i].n_loaded_pages;  // Number of pages loaded into memory 
+        }
   return 0;
 }
 
@@ -234,7 +251,7 @@ uint find_free_mmap_space(struct proc *p, int length)
   return 0; // No suitable address found
 }
 
-int check_fixed(struct proc *p, uint addr, int length)
+int check_fixed(struct proc p, uint addr, int length)
 {
   // addr must be non-zero and aligned
   if (addr == 0 || addr % PGSIZE != 0)
@@ -251,11 +268,14 @@ int check_fixed(struct proc *p, uint addr, int length)
   // Check for overlap with existing mappings
   for (int i = 0; i < MAX_MMAPS; i++)
   {
-    struct mmap_region *mmap = &p->mmap[i];
-    if (mmap->used &&
-        (addr < mmap->addr + mmap->length && addr + length > mmap->addr)) // Corrected overlap check
+    struct mmap_region *mmap = &p.mmap[i];
+
+    for (int index = addr; index < addr + length; index++)
     {
-      return FAILED; // Overlap detected
+      if (mmap->used && index >= mmap->addr && index <= mmap->addr + mmap->length)
+      {
+        return FAILED; // Overlap detected
+      }
     }
   }
 
@@ -270,6 +290,8 @@ uint suggestive_address(struct proc *p, uint addr, int length)
     addr = find_free_mmap_space(p, length); // If addr is invalid, dynamically find a space
     if (addr == 0)
       return 0; // No space available
+
+    return addr;
   }
 
   // Check for overlap with existing mappings
