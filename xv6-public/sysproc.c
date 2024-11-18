@@ -122,7 +122,7 @@ uint wmap(void)
   }
 
   // Ensure valid length and alignment
-  if (length <= 0 /*|| (addr % PGSIZE != 0)*/)
+  if (length <= 0 || (addr % PGSIZE != 0))
     return FAILED;
 
   // Round the length up to the next multiple of PGSIZE
@@ -291,9 +291,10 @@ int check_fixed(struct proc p, uint addr, int length)
   {
     struct mmap_region *mmap = &p.mmap[i];
 
-    for (int index = addr; index < addr + length; index++)
+    if (mmap->used)
     {
-      if (mmap->used && index >= mmap->addr && index <= mmap->addr + mmap->length)
+      // If the ranges [addr, addr + length) and [mmap->addr, mmap->addr + mmap->length) overlap:
+      if (addr < mmap->addr + mmap->length && addr + length > mmap->addr)
       {
         return FAILED; // Overlap detected
       }
