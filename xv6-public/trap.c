@@ -4,13 +4,16 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "x86.h"
 #include "traps.h"
-#include "spinlock.h"
 #include "wmap.h"
 
-int file_read(int fd, void *buf, int nbytes, int offset);
-// struct file* get_file_by_fd(int fd);
+// int fileread(struct file *f, char *buf, int offset, int n);
+//  struct file* get_file_by_fd(int fd);
 
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
@@ -128,34 +131,41 @@ void trap(struct trapframe *tf)
           break;
         }
 
-        //TODO p->total_mmaps++; here or in wmap?
-
         // Map anonymous is not set, proceed to perform file back mapping with fd parameter: mmap->fd
         if (!(mmap->flags & MAP_ANONYMOUS))
         {
-          // Consider fd
+          // Use the `fd` directly to access the file
+          struct file *f = p->ofile[mmap->fd]; // Get the file pointer
+
+          // Calculate the offset in the file for this page
+          int file_offset = page_start - mmap->addr;
+
+          // Adjust the file offset temporarily for reading
+          int original_offset = f->off;
+          f->off = file_offset;
+
+          // Read data from the file into the allocated memory page
+          int bytes_read = fileread(f, mem, PGSIZE);
+          f->off = original_offset; // Restore the original offset
+
+          if (bytes_read < 0)
+          {
+            cprintf("File read failed for mmap region\n");
+            kfree(mem);
+            p->killed = 1;
+            break;
+          }
+
+          // Zero out the rest of the page if fewer than PGSIZE bytes were read
+          if (bytes_read < PGSIZE)
+          {
+            memset(mem + bytes_read, 0, PGSIZE - bytes_read);
+          }
         }
         else
         {
           // Don't need to consider fd. It's NOT File-backed mapping
         }
-
-        // if (mmap->fd != 0) // There is an associated file descriptor for file back mapping
-        // {
-        //   // The important part: Read the data from the file (using the file descriptor)
-        //   int offset = fault_addr - mmap->addr; // Calculate the offset from the mapped address
-        //   int fd = mmap->fd;                    // Get the file descriptor from the mapping
-
-        //   // Read data from the file into the allocated memory page
-        //   int bytes_read = file_read(fd, mem, PGSIZE, offset); //TODO implement file_read to get file data into virtual memory
-        //   if (bytes_read < 0)
-        //   {
-        //     cprintf("trap: file read failed\n");
-        //     kfree(mem); // Free the allocated page on read failure
-        //     p->killed = 1;
-        //     break;
-        //   }
-        // }
 
         break; // Stop searching once a match is handled
       }
@@ -205,23 +215,21 @@ void trap(struct trapframe *tf)
     exit();
 }
 
-int file_read(int fd, void *buf, int nbytes, int offset)
-{
-  int bytes_read = 0; // TODO comment this out later for full implemention
+// int fileread(struct file *f, char *buf, int offset, int n)
+// {
+//   if (f->type != FD_INODE)
+//   {
+//     return -1; // Only support files of type FD_INODE
+//   }
 
-  // struct file *f = get_file_by_fd(fd);  // Look up the file using fd
-  // if (f == 0) {
-  //     return -1;  // Error: File not found
-  // }
+//   struct inode *ip = f->ip;
+//   ilock(ip);
 
-  // // Move the file pointer to the right offset
-  // fseek(f, offset);
+//   int bytes_read = readi(ip, buf, offset, n); // Read `n` bytes from `offset`
+//   iunlock(ip);
 
-  // // Read data into the buffer (mem in our case)
-  // int bytes_read = fread(f, buf, nbytes);
-
-  return bytes_read; // Return the number of bytes successfully read
-}
+//   return bytes_read;
+// }
 
 // struct file* get_file_by_fd(int fd) {
 //     struct proc *p = myproc(); // Get the current process (you likely have a function like myproc() that returns the current process)

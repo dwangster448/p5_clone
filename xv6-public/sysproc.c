@@ -122,7 +122,7 @@ uint wmap(void)
   }
 
   // Ensure valid length and alignment
-  if (length <= 0 || (addr % PGSIZE != 0))
+  if (length <= 0 /*|| (addr % PGSIZE != 0)*/)
     return FAILED;
 
   // Round the length up to the next multiple of PGSIZE
@@ -138,7 +138,7 @@ uint wmap(void)
 
   if (!(flags & MAP_FIXED))
   {
-    return FAILED; // MAP_FIXED is mandatory with non-zero address
+    return FAILED; // MAP_FIXED is mandatory
   }
 
   struct proc *p = myproc();
