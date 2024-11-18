@@ -99,7 +99,7 @@ void trap(struct trapframe *tf)
       struct mmap_region *mmap = &p->mmap[i]; // TODO What are we supposed to do for n_loaded_pages
       if (mmap->used &&
           fault_addr >= mmap->addr &&
-          fault_addr < mmap->addr + mmap->length)
+          fault_addr <= mmap->addr + mmap->length)
       {
 
         found = 1; // We found the valid memory region in memory map
@@ -118,6 +118,8 @@ void trap(struct trapframe *tf)
 
         // Zero out the page and map it into the process's address space
         memset(mem, 0, PGSIZE);
+
+        // Map the physical page to the faulting virtual address
         if (mappages(p->pgdir, (char *)page_start, PGSIZE, V2P(mem), PTE_W | PTE_U) < 0)
         {
           cprintf("Lazy allocation failed: mappages failed\n");
@@ -126,22 +128,17 @@ void trap(struct trapframe *tf)
           break;
         }
 
-        //Map anonymous is not set, proceed to perform file back mapping with fd parameter: mmap->fd
-        if (!(mmap->flags & MAP_ANONYMOUS)) {
+        //TODO p->total_mmaps++; here or in wmap?
+
+        // Map anonymous is not set, proceed to perform file back mapping with fd parameter: mmap->fd
+        if (!(mmap->flags & MAP_ANONYMOUS))
+        {
           // Consider fd
         }
-        else {
+        else
+        {
           // Don't need to consider fd. It's NOT File-backed mapping
         }
-        // Map the physical memory to the faulting virtual address
-        // uint aligned_addr = PGROUNDDOWN(fault_addr);
-        // if (mappages(p->pgdir, (char *)aligned_addr, PGSIZE, V2P(mem), PTE_W | PTE_U) < 0)
-        // {
-        //   cprintf("trap: lazy allocation mapping failed\n");
-        //   kfree(mem); // Free the allocated page
-        //   p->killed = 1;
-        //   break;
-        // }
 
         // if (mmap->fd != 0) // There is an associated file descriptor for file back mapping
         // {
@@ -160,7 +157,7 @@ void trap(struct trapframe *tf)
         //   }
         // }
 
-        // break;
+        break; // Stop searching once a match is handled
       }
     }
 
@@ -169,9 +166,12 @@ void trap(struct trapframe *tf)
     {
       cprintf("Segmentation Fault: Fault address 0x%x\n", fault_addr);
       p->killed = 1; // Mark the process for termination
+      break;
+      // goto pagefault_default;
     } // kill the process
 
-  // PAGEBREAK: 13
+  // pagefault_default:
+  //  PAGEBREAK: 13
   default:
     if (myproc() == 0 || (tf->cs & 3) == 0)
     {

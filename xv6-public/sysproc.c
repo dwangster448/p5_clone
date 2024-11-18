@@ -121,8 +121,25 @@ uint wmap(void)
     return FAILED; // Failed fetching value to integer
   }
 
-  if (length <= 0 || (addr % PGSIZE != 0)) // Ensure valid length and alignment
+  // Ensure valid length and alignment
+  if (length <= 0 || (addr % PGSIZE != 0))
     return FAILED;
+
+  // Round the length up to the next multiple of PGSIZE
+  // if (length % PGSIZE != 0)
+  // {
+  //   length = PGROUNDUP(length);
+  // }
+
+  if (!(flags & MAP_SHARED))
+  {
+    return FAILED; // MAP_SHARED is mandatory
+  }
+
+  if (!(flags & MAP_FIXED))
+  {
+    return FAILED; // MAP_FIXED is mandatory with non-zero address
+  }
 
   struct proc *p = myproc();
 
@@ -156,11 +173,12 @@ uint wmap(void)
     {
       p->mmap[i].addr = addr;
       p->mmap[i].length = length;
+      cprintf("length of current mmap addition: %d\n", length);
       p->mmap[i].flags = flags;
       p->mmap[i].fd = fd; // Store the file descriptor for file-backed mapping
       p->mmap[i].used = 1;
 
-      total_mmaps++;
+      p->total_mmaps++;
       return addr; // return the current add
     }
   }
@@ -181,7 +199,7 @@ uint va2pa(void)
 
   uint offset = va & 0x00000FFF;
 
-  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)pt_index, 0); //TODO check pde_t pte_t type check
+  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)pt_index, 0); // TODO check pde_t pte_t type check
 
   uint physical_address = *pte + offset;
 
@@ -199,6 +217,7 @@ int getwmapinfo(void)
 
   if (argptr(0, (char **)&info, sizeof(info)) < 0)
   {
+    cprintf("Could not get argptr\n");
     return FAILED;
   }
 
@@ -210,13 +229,15 @@ int getwmapinfo(void)
   }
 
   for (int i = 0; i < MAX_WMMAP_INFO; i++)
-          if (p->mmap[i].used)  // If the mmap entry is used
-        {
-            info->addr[i] = p->mmap[i].addr;          // Copy the starting address
-            info->length[i] = p->mmap[i].length;      // Copy the length
-            info->n_loaded_pages[i] = p->mmap[i].n_loaded_pages;  // Number of pages loaded into memory 
-        }
-  return 0;
+    if (p->mmap[i].used) // If the mmap entry is used
+    {
+      info->addr[i] = p->mmap[i].addr;                     // Copy the starting address
+      info->length[i] = p->mmap[i].length;                 // Copy the length
+      info->n_loaded_pages[i] = p->mmap[i].n_loaded_pages; // Number of pages loaded into memory
+    }
+
+  info->total_mmaps = p->total_mmaps;
+  return SUCCESS;
 }
 
 uint find_free_mmap_space(struct proc *p, int length)

@@ -133,7 +133,7 @@ static int (*syscalls[])(void) = {
 [SYS_wmap]    wmap,
 [SYS_va2pa]   va2pa,
 [SYS_wunmap]   wunmap,
-[SYS_wunmap]   getwmapinfo,
+[SYS_getwmapinfo]   getwmapinfo,
 };
 
 void

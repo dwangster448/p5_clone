@@ -7,7 +7,7 @@
 #include "proc.h"
 #include "spinlock.h"
 
-int total_mmaps = 0;
+int total_mmaps = 0; //There is a total_mmaps already in myproc()
 int n_loaded_pages = 0;
 
 struct {

@@ -26,7 +26,7 @@ int main() {
     map_exists(&winfo, map, length, TRUE); // the map exists
     printf(1, "INFO: Map 1 at 0x%x with length 0x%x. \tOkay.\n", map, length);
 
-    //
+    // 
     // Place map with wrong flags (MAP_FIXED missing or MAP_SHARED missing)
     //
     addr = MMAPBASE + PGSIZE * 10;
