@@ -86,8 +86,8 @@ void trap(struct trapframe *tf)
     lapiceoi();
     break;
 
-  case T_PGFLT: // T_PGFLT = 14
-    uint fault_addr = rcr2();
+  case T_PGFLT:               // T_PGFLT = 14
+    uint fault_addr = rcr2(); // b trap.c:90
 
     struct proc *p = myproc();
     if (p == 0)
@@ -99,16 +99,30 @@ void trap(struct trapframe *tf)
 
     for (int i = 0; i < MAX_MMAPS; i++)
     {
+      //cprintf("%d\n", i);
       struct mmap_region *mmap = &p->mmap[i]; // TODO What are we supposed to do for n_loaded_pages
       if (mmap->used &&
           fault_addr >= mmap->addr &&
-          fault_addr <= mmap->addr + mmap->length)
+          fault_addr < mmap->addr + mmap->length)
       {
 
         found = 1; // We found the valid memory region in memory map
 
         // Align the fault address to the page boundary
         uint page_start = PGROUNDDOWN(fault_addr);
+        // cprintf("%d\n", page_start);
+
+        // pte_t *pte = walkpgdir(p->pgdir, (void *)page_start, 0);
+        // // Check if the page is already mapped
+        // if (!pte)
+        // {
+        //   cprintf("Page not mapped; skipping allocation.\n");
+        //   return;
+        // }
+
+        //cprintf("start add: %d\n", page_start);
+
+        //cprintf("Not mapped\n");
 
         // Allocate a physical page
         char *mem = kalloc();
@@ -166,8 +180,9 @@ void trap(struct trapframe *tf)
         {
           // Don't need to consider fd. It's NOT File-backed mapping
         }
-
-        break; // Stop searching once a match is handled
+        mmap->n_loaded_pages++;
+        cprintf("r\n");
+        return; // Stop searching once a match is handled
       }
     }
 
