@@ -38,6 +38,21 @@ void idtinit(void)
   lidt(idt, sizeof(idt));
 }
 
+// Helper method to fileread for file-back mapping in page fault lazy allocation
+int fileread_offset(struct file *f, char *buf, int n, int offset)
+{
+  if (f->readable == 0)
+  {
+    return -1;
+  }
+
+  ilock(f->ip);
+  int bytes_read = readi(f->ip, buf, offset, n);
+  iunlock(f->ip);
+
+  return bytes_read;
+}
+
 // PAGEBREAK: 41
 void trap(struct trapframe *tf)
 {
@@ -99,7 +114,7 @@ void trap(struct trapframe *tf)
 
     for (int i = 0; i < MAX_MMAPS; i++)
     {
-      //cprintf("%d\n", i);
+      // cprintf("%d\n", i);
       struct mmap_region *mmap = &p->mmap[i]; // TODO What are we supposed to do for n_loaded_pages
       if (mmap->used &&
           fault_addr >= mmap->addr &&
@@ -120,9 +135,9 @@ void trap(struct trapframe *tf)
         //   return;
         // }
 
-        //cprintf("start add: %d\n", page_start);
+        // cprintf("start add: %d\n", page_start);
 
-        //cprintf("Not mapped\n");
+        // cprintf("Not mapped\n");
 
         // Allocate a physical page
         char *mem = kalloc();
@@ -181,7 +196,7 @@ void trap(struct trapframe *tf)
           // Don't need to consider fd. It's NOT File-backed mapping
         }
         mmap->n_loaded_pages++;
-        cprintf("r\n");
+        //cprintf("r\n");
         return; // Stop searching once a match is handled
       }
     }

@@ -201,6 +201,12 @@ uint va2pa(void)
 
   pte_t *pte = walkpgdir(myproc()->pgdir, (void *)pt_index, 0); // TODO check pde_t pte_t type check
 
+  //cprintf("pte:%d\n", &pte);
+
+  if (pte == 0 || !(*pte & PTE_P)) // second condition checks if pte present bit is valid, if invalid means pte is not set and no physical mapping
+  {
+    return FAILED;
+  }
   uint physical_address = *pte + offset;
 
   return physical_address;

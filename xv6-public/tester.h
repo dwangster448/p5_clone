@@ -131,6 +131,7 @@ void map_allocated(struct wmapinfo *info, uint addr, int length,
 }
 
 void va_exists(uint va, int expected) {
+    printf(1, "va: %d\n", va);
     int ret = va2pa(va);
     if (ret == FAILED) { // va is not allocated
         if (expected) {
@@ -139,6 +140,8 @@ void va_exists(uint va, int expected) {
         }
         return;
     }
+    printf(1, "va allocated: %d\n", ret);
+    printf(1, "expected: %d\n", expected);
     // va is allocated
     if (!expected) {
         printerr("va 0x%x has pa, expected it to be not allocated\n", va);
