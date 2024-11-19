@@ -214,7 +214,39 @@ uint va2pa(void)
 
 int wunmap(void)
 {
-  return 0;
+  uint addr;
+  int int_addr;
+  // use a argint here to retrieve int n argument
+  if (argint(0, &int_addr) < 0)
+  {
+    return FAILED; // Failed fetching value to integer
+  }
+  addr = (uint)int_addr;
+
+  if (addr < 0x60000000 || addr > 0x80000000) {
+    return FAILED;
+  }
+
+  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)addr, 0);
+
+  if (!(*pte & PTE_P))
+  {
+    return SUCCESS; // pte has already been deallocated off physical memory or no physical mapping exist, just return
+  }
+
+  // Extract the physical address from the PTE
+  uint physical_address = PTE_ADDR(*pte);
+
+  // Free the physical memory
+  kfree(P2V(physical_address));
+
+  // Clear the page table entry
+  pte = 0;
+
+  // Invalidate the TLB entry for this address
+  //invlpg((void *)addr);
+
+  return SUCCESS;
 }
 
 int getwmapinfo(void)

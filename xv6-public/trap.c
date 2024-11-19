@@ -204,7 +204,7 @@ void trap(struct trapframe *tf)
     // If no valid mapping was found for the faulting address
     if (!found)
     {
-      cprintf("Segmentation Fault: Fault address 0x%x\n", fault_addr);
+      cprintf("Segmentation Fault: Fault address 0x%x\n", fault_addr); //Need this statement or a bunch of tests fails
       p->killed = 1; // Mark the process for termination
       break;
       // goto pagefault_default;
