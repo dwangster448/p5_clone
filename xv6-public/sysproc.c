@@ -173,7 +173,7 @@ uint wmap(void)
     {
       p->mmap[i].addr = addr;
       p->mmap[i].length = length;
-      //cprintf("length of current mmap addition: %d\n", length);
+      // cprintf("length of current mmap addition: %d\n", length);
       p->mmap[i].flags = flags;
       p->mmap[i].fd = fd; // Store the file descriptor for file-backed mapping
       p->mmap[i].used = 1;
@@ -181,32 +181,32 @@ uint wmap(void)
       p->total_mmaps++;
 
       if (!(flags & MAP_ANONYMOUS))
-      { // perform logic for file-back mapping
-        struct file *f = p->ofile[fd]; //Retrieves the file structure of pointer, Dont knpw if this is right syntax to grab it 
+      {                                // perform logic for file-back mapping
+        struct file *f = p->ofile[fd]; // Retrieves the file structure of pointer, Dont knpw if this is right syntax to grab it
 
-        //cprintf("file pointer at fd %d, %d\n", fd, &f);
-        if (f == 0) //Note that fd might just be a file descriptor between 0-15 since there are only 16 file indexes in the proc
+        // cprintf("file pointer at fd %d, %d\n", fd, &f);
+        if (f == 0) // Note that fd might just be a file descriptor between 0-15 since there are only 16 file indexes in the proc
         {
           cprintf("Invalid file descriptor\n");
           // The file descriptor is invalid or closed
           return FAILED; // Error handling: return failure
         }
-        p->ofile[fd] = filedup(f); //First duplication and swap at original place of fd file structure retrieval
-/**/
-        int dup_used = 0; 
+        p->ofile[fd] = filedup(f); // First duplication and swap at original place of fd file structure retrieval
+        /**/
+        int dup_used = 0;
 
         // Now we need to duplicate the file descriptor for kernel usage
         int fd_dup = -1;
         for (int i = 0; i < NOFILE; i++)
         {
-          if ((p->ofile[i] == 0) & (dup_used == 0)) //Store duplicated fd file structure at index in proc 
-          {                           // Find an empty slot in the process's file descriptor array
-            p->ofile[i] = filedup(f); // Duplicate the file descriptor
-            fd_dup = i;               // Store the duplicated file descriptor index
+          if ((p->ofile[i] == 0) & (dup_used == 0)) // Store duplicated fd file structure at index in proc
+          {                                         // Find an empty slot in the process's file descriptor array
+            p->ofile[i] = filedup(f);               // Duplicate the file descriptor
+            fd_dup = i;                             // Store the duplicated file descriptor index
             dup_used = 1;
           }
         }
-        //cprintf("successful fd copy:\n");
+        // cprintf("successful fd copy:\n");
 
         if (fd_dup == -1)
         {
@@ -254,38 +254,79 @@ int wunmap(void)
 {
   uint addr;
   int int_addr;
-  // use a argint here to retrieve int n argument
+
+  // Fetch the address argument
   if (argint(0, &int_addr) < 0)
   {
-    return FAILED; // Failed fetching value to integer
+    return FAILED; // Failed fetching value
   }
   addr = (uint)int_addr;
 
-  if (addr < 0x60000000 || addr > 0x80000000)
+  // Validate the address range (adjust as needed for your system's mmap range)
+  if (addr < 0x60000000 || addr >= 0x80000000)
   {
     return FAILED;
   }
 
-  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)addr, 0); 
+  struct proc *p = myproc();
+  struct mmap_region *mmap = 0;
 
-  if (!(*pte & PTE_P))
+  int found = 0;
+
+  // Find the memory region in p->mmap
+  for (int i = 0; i < MAX_MMAPS; i++)
   {
-    return SUCCESS; // pte has already been deallocated off physical memory or no physical mapping exist, just return
+    if (p->mmap[i].used && addr >= p->mmap[i].addr && addr < p->mmap[i].addr + p->mmap[i].length && found == 0)
+    {
+      mmap = &p->mmap[i];
+      found = 1;
+    }
   }
 
-  // Extract the physical address from the PTE
-  uint physical_address = PTE_ADDR(*pte); //Work on write changes made to the mapped memory back to disk
+  // If no valid mmap region is found, return error
+  if (!mmap)
+  {
+    return FAILED;
+  }
 
-  // Free the physical memory
-  kfree(P2V(physical_address));
+  // Deallocate the memory for the mmap region
+  for (uint page_start = PGROUNDDOWN(mmap->addr); page_start < mmap->addr + mmap->length; page_start += PGSIZE)
+  {
+    pte_t *pte = walkpgdir(p->pgdir, (void *)page_start, 0);
 
-  // Clear the page table entry
-  pte = 0;
+    if (pte && (*pte & PTE_P))
+    {
+      uint physical_address = PTE_ADDR(*pte);
+/*
+      // If it's file-backed, write any dirty pages back to the file
+      if (!(mmap->flags & MAP_ANONYMOUS) && (*pte & PTE_D))
+      {
+        struct file *f = p->ofile[mmap->fd];
+        if (f)
+        {
+          int file_offset = page_start - mmap->addr;
+          f->off = file_offset;                        // Adjust file offset
+          filewrite(f, P2V(physical_address), PGSIZE); // Write back data
+        }
+      }
+*/
+      // Free the physical memory
+      kfree(P2V(physical_address));
 
-  // Invalidate the TLB entry for this address
-  // invlpg((void *)addr);
+      // Clear the page table entry
+      *pte = 0;
 
-  myproc()->total_mmaps--;
+      // Invalidate the TLB entry
+      //invlpg((void *)page_start);
+    }
+  }
+
+  // Mark the mmap region as unused
+  mmap->used = 0;
+  mmap->n_loaded_pages = 0;
+
+  // Decrement total mmap count
+  p->total_mmaps--;
 
   return SUCCESS;
 }
