@@ -6,6 +6,10 @@
 #include "param.h"
 #include "memlayout.h"
 #include "proc.h"
+#include "fs.h"
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "file.h"
 #include "wmap.h"
 
 uint find_free_mmap_space(struct proc *p, int length);
@@ -297,9 +301,9 @@ int wunmap(void)
     if (pte && (*pte & PTE_P))
     {
       uint physical_address = PTE_ADDR(*pte);
-/*
+
       // If it's file-backed, write any dirty pages back to the file
-      if (!(mmap->flags & MAP_ANONYMOUS) && (*pte & PTE_D))
+      if (!(mmap->flags & MAP_ANONYMOUS))
       {
         struct file *f = p->ofile[mmap->fd];
         if (f)
@@ -309,7 +313,7 @@ int wunmap(void)
           filewrite(f, P2V(physical_address), PGSIZE); // Write back data
         }
       }
-*/
+
       // Free the physical memory
       kfree(P2V(physical_address));
 
