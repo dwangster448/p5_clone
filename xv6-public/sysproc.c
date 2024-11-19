@@ -185,7 +185,7 @@ uint wmap(void)
         struct file *f = p->ofile[fd]; //Retrieves the file structure of pointer, Dont knpw if this is right syntax to grab it 
 
         //cprintf("file pointer at fd %d, %d\n", fd, &f);
-        if (f == 0)
+        if (f == 0) //Note that fd might just be a file descriptor between 0-15 since there are only 16 file indexes in the proc
         {
           cprintf("Invalid file descriptor\n");
           // The file descriptor is invalid or closed
@@ -193,7 +193,7 @@ uint wmap(void)
         }
         p->ofile[fd] = filedup(f); //First duplication and swap at original place of fd file structure retrieval
 /**/
-        int dup_used = 0;
+        int dup_used = 0; 
 
         // Now we need to duplicate the file descriptor for kernel usage
         int fd_dup = -1;
@@ -266,7 +266,7 @@ int wunmap(void)
     return FAILED;
   }
 
-  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)addr, 0);
+  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)addr, 0); 
 
   if (!(*pte & PTE_P))
   {
@@ -274,7 +274,7 @@ int wunmap(void)
   }
 
   // Extract the physical address from the PTE
-  uint physical_address = PTE_ADDR(*pte);
+  uint physical_address = PTE_ADDR(*pte); //Work on write changes made to the mapped memory back to disk
 
   // Free the physical memory
   kfree(P2V(physical_address));
@@ -284,6 +284,8 @@ int wunmap(void)
 
   // Invalidate the TLB entry for this address
   // invlpg((void *)addr);
+
+  myproc()->total_mmaps--;
 
   return SUCCESS;
 }
