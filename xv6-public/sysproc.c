@@ -173,12 +173,50 @@ uint wmap(void)
     {
       p->mmap[i].addr = addr;
       p->mmap[i].length = length;
-      cprintf("length of current mmap addition: %d\n", length);
+      //cprintf("length of current mmap addition: %d\n", length);
       p->mmap[i].flags = flags;
       p->mmap[i].fd = fd; // Store the file descriptor for file-backed mapping
       p->mmap[i].used = 1;
 
       p->total_mmaps++;
+
+      if (!(flags & MAP_ANONYMOUS))
+      { // perform logic for file-back mapping
+        struct file *f = p->ofile[fd]; //Retrieves the file structure of pointer, Dont knpw if this is right syntax to grab it 
+
+        //cprintf("file pointer at fd %d, %d\n", fd, &f);
+        if (f == 0)
+        {
+          cprintf("Invalid file descriptor\n");
+          // The file descriptor is invalid or closed
+          return FAILED; // Error handling: return failure
+        }
+        p->ofile[fd] = filedup(f); //First duplication and swap at original place of fd file structure retrieval
+/**/
+        int dup_used = 0;
+
+        // Now we need to duplicate the file descriptor for kernel usage
+        int fd_dup = -1;
+        for (int i = 0; i < NOFILE; i++)
+        {
+          if ((p->ofile[i] == 0) & (dup_used == 0)) //Store duplicated fd file structure at index in proc 
+          {                           // Find an empty slot in the process's file descriptor array
+            p->ofile[i] = filedup(f); // Duplicate the file descriptor
+            fd_dup = i;               // Store the duplicated file descriptor index
+            dup_used = 1;
+          }
+        }
+        //cprintf("successful fd copy:\n");
+
+        if (fd_dup == -1)
+        {
+          // No available slot for the file descriptor
+          return FAILED; // Error handling: return failure
+        }
+
+        p->mmap[i].fd = fd_dup;
+      }
+
       return addr; // return the current add
     }
   }
@@ -201,7 +239,7 @@ uint va2pa(void)
 
   pte_t *pte = walkpgdir(myproc()->pgdir, (void *)pt_index, 0); // TODO check pde_t pte_t type check
 
-  //cprintf("pte:%d\n", &pte);
+  // cprintf("pte:%d\n", &pte);
 
   if (pte == 0 || !(*pte & PTE_P)) // second condition checks if pte present bit is valid, if invalid means pte is not set and no physical mapping
   {
@@ -223,7 +261,8 @@ int wunmap(void)
   }
   addr = (uint)int_addr;
 
-  if (addr < 0x60000000 || addr > 0x80000000) {
+  if (addr < 0x60000000 || addr > 0x80000000)
+  {
     return FAILED;
   }
 
@@ -244,7 +283,7 @@ int wunmap(void)
   pte = 0;
 
   // Invalidate the TLB entry for this address
-  //invlpg((void *)addr);
+  // invlpg((void *)addr);
 
   return SUCCESS;
 }

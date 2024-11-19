@@ -127,18 +127,6 @@ void trap(struct trapframe *tf)
         uint page_start = PGROUNDDOWN(fault_addr);
         // cprintf("%d\n", page_start);
 
-        // pte_t *pte = walkpgdir(p->pgdir, (void *)page_start, 0);
-        // // Check if the page is already mapped
-        // if (!pte)
-        // {
-        //   cprintf("Page not mapped; skipping allocation.\n");
-        //   return;
-        // }
-
-        // cprintf("start add: %d\n", page_start);
-
-        // cprintf("Not mapped\n");
-
         // Allocate a physical page
         char *mem = kalloc();
         if (mem == 0)

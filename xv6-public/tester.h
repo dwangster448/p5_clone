@@ -140,8 +140,8 @@ void va_exists(uint va, int expected) {
         }
         return;
     }
-    printf(1, "va allocated: %d\n", ret);
-    printf(1, "expected: %d\n", expected);
+    //printf(1, "va allocated: %d\n", ret);
+    //printf(1, "expected: %d\n", expected);
     // va is allocated
     if (!expected) {
         printerr("va 0x%x has pa, expected it to be not allocated\n", va);
