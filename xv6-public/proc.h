@@ -2,6 +2,7 @@
 
 #define MAX_MMAPS 16
 #define MAX_WMAP_INFO 16
+#define MAX_PAGES 1024 * 1024       // 1M pages for 4GB memory
 
 //metadata to manage memory maps
 struct mmap_region {
@@ -29,6 +30,11 @@ extern struct cpu cpus[NCPU];
 extern int ncpu;
 extern int total_mmaps;
 extern int n_loaded_pages;
+extern struct proc *initproc; //Added to provide vm.c access to perform COW on non-init processes
+extern uchar ref_counts[MAX_PAGES];
+
+// Lock to protect refs array updates
+extern struct spinlock refs_lock;
 
 //PAGEBREAK: 17
 // Saved registers for kernel context switches.

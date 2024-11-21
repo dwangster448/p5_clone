@@ -110,12 +110,63 @@ void trap(struct trapframe *tf)
       panic("trap: page fault with no process");
     }
 
+    // If the process is the init process, jump to default page handler
+    // if (p->pid == 1) { // Assuming `init` has PID 1
+    //     goto pagefault_default;
+    // }
+
+    // Find the PTE for the faulting address
+    pte_t *pte = walkpgdir(p->pgdir, (void *)fault_addr, 0);
+    if (!pte || !(*pte & PTE_P)) {
+        // Invalid memory access
+        // cprintf("Segmentation Fault: Invalid page fault at 0x%x\n", fault_addr);
+        // p->killed = 1;
+        // break;
+        goto pagefault_default;
+    }
+
+    if (*pte & PTE_COW) { // Handle Copy-On-Write
+        uint pa = PTE_ADDR(*pte);  // Get the physical address of the page
+        char *new_page;
+
+        if (ref_counts[pa / PGSIZE] == 1) {
+            // Only one reference, modify the page directly
+            *pte |= PTE_W;       // Mark the page as writable
+            *pte &= ~PTE_COW;    // Clear the COW flag
+            lcr3(V2P(p->pgdir)); // Flush TLB
+            return;
+        } else {
+            // More than one reference, duplicate the page
+            new_page = kalloc(); // Allocate a new physical page
+            if (!new_page) {
+                cprintf("Page fault: Out of memory\n");
+                p->killed = 1;
+                break;
+            }
+
+            // Copy the content from the original page
+            memmove(new_page, (char *)P2V(pa), PGSIZE);
+
+            // Update the PTE to point to the new page
+            *pte = V2P(new_page) | PTE_FLAGS(*pte) | PTE_W; // New page is writable
+            *pte &= ~PTE_COW;                              // Clear the COW flag
+
+            // Update reference counts
+            decref(pa); // Decrement ref count of the original page
+            incref(V2P(new_page)); // Increment ref count for the new page
+
+            lcr3(V2P(p->pgdir)); // Flush TLB
+            return;
+        }
+    }
+
+    pagefault_default:
     int found = 0;
 
     for (int i = 0; i < MAX_MMAPS; i++)
     {
       // cprintf("%d\n", i);
-      struct mmap_region *mmap = &p->mmap[i]; // TODO What are we supposed to do for n_loaded_pages
+      struct mmap_region *mmap = &p->mmap[i]; // Use mmap structure to traverse to find mmap region
       if (mmap->used &&
           fault_addr >= mmap->addr &&
           fault_addr < mmap->addr + mmap->length)
@@ -184,7 +235,7 @@ void trap(struct trapframe *tf)
           // Don't need to consider fd. It's NOT File-backed mapping
         }
         mmap->n_loaded_pages++;
-        //cprintf("r\n");
+        // cprintf("r\n");
         return; // Stop searching once a match is handled
       }
     }
@@ -192,13 +243,12 @@ void trap(struct trapframe *tf)
     // If no valid mapping was found for the faulting address
     if (!found)
     {
-      cprintf("Segmentation Fault: Fault address 0x%x\n", fault_addr); //Need this statement or a bunch of tests fails
-      p->killed = 1; // Mark the process for termination
+      cprintf("Segmentation Fault: Fault address 0x%x\n", fault_addr); // Need this statement or a bunch of tests fails
+      p->killed = 1;                                                   // Mark the process for termination
       break;
-      // goto pagefault_default;
     } // kill the process
 
-  // pagefault_default:
+  
   //  PAGEBREAK: 13
   default:
     if (myproc() == 0 || (tf->cs & 3) == 0)
