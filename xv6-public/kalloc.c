@@ -70,7 +70,7 @@ void decref(uint pa)
 
   if (ref_counts[pa / PGSIZE] < 1) {
     //release(&refs_lock);
-    panic("decref: reference count underflow");
+    kfree(P2V(pa));
   }
 
   ref_counts[pa / PGSIZE]--;
@@ -124,13 +124,15 @@ void kfree(char *v)
   //acquire(&kmem.lock);
   if (get_ref_count(V2P(v)) > 1)
   {
-    decref(V2P(v));
+    //acquire(&refs_lock);
+    //decref(V2P(v));
+    //release(&refs_lock);
     //release(&kmem.lock);
     return;
   }
   //release(&kmem.lock);
 
-  // Fill with junk to catch dangling refs.
+  // Fill with junk to catch dangling refs if ref_count = 1.
   memset(v, 1, PGSIZE);
 
   if (kmem.use_lock)

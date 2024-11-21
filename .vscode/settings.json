@@ -4,6 +4,7 @@
         "file.h": "c",
         "param.h": "c",
         "spinlock.h": "c",
-        "memlayout.h": "c"
+        "memlayout.h": "c",
+        "typeinfo": "c"
     }
 }

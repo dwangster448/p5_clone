@@ -4,8 +4,11 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "x86.h"
-#include "proc.h"
+#include "fs.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "proc.h"
 
 #define MAX_MMAPS 16
 
@@ -70,7 +73,7 @@ myproc(void)
   struct proc *p;
   pushcli();
   c = mycpu();
-  p = c->proc;  
+  p = c->proc;
   popcli();
   return p;
 }
@@ -260,20 +263,47 @@ int fork(void)
 
     // Handle file-back mapping
 
-    uint addr;
-    for (addr = parent_map->addr; addr < parent_map->addr + parent_map->length; addr += PGSIZE)
-    {
-      pte_t *pte = walkpgdir(curproc->pgdir, (void *)addr, 0);
-      uint pa = PTE_ADDR(*pte);
-      uint flags = PTE_FLAGS(*pte);
+    // pte_t *parent_pte = walkpgdir(curproc->pgdir, (void *)addr, 0);
+    // pte_t *child_pte = walkpgdir(np->pgdir, (void *)addr, 0);
 
-      if (parent_map->flags & MAP_SHARED)
+    // if (parent_pte == 0 || child_pte == 0)
+    // {
+    //   cprintf("Error: PTE not found for VA: %p (parent: %p, child: %p)\n",
+    //           addr, parent_pte, child_pte);
+    //   continue;
+    // }
+
+    // uint parent_flags = PTE_FLAGS(*parent_pte);
+    // uint child_flags = PTE_FLAGS(*child_pte);
+
+    // cprintf("Parent VA: %p -> PA: %p, Flags: %x\n",
+    //         addr, PTE_ADDR(*parent_pte), parent_flags);
+
+    // cprintf("Child VA: %p -> PA: %p, Flags: %x\n",
+    //         addr, PTE_ADDR(*child_pte), child_flags);
+
+    if (parent_map->flags & MAP_SHARED)
+    {
+      uint addr;
+      for (addr = parent_map->addr; addr < parent_map->addr + parent_map->length; addr += PGSIZE)
       {
-        incref(pa);
+        pte_t *pte = walkpgdir(curproc->pgdir, (void *)addr, 0);
+        uint pa = PTE_ADDR(*pte);
+        uint flags = PTE_FLAGS(*pte);
+
+        // Clear COW bit after fork for shared regions
+        if (flags & PTE_COW)
+        {
+          flags &= ~PTE_COW;
+        }
+
         if (mappages(np->pgdir, (void *)addr, PGSIZE, pa, flags) < 0)
         {
-          return FAILED;
+          continue;
         }
+        // acquire(&refs_lock);
+        incref(pa);
+        // release(&refs_lock);
       }
     }
   }
@@ -287,6 +317,8 @@ int fork(void)
   np->state = RUNNABLE;
 
   release(&ptable.lock);
+
+  lcr3(V2P(np->pgdir));
 
   // np->total_mmaps = curproc->total_mmaps; //manually copy total_mmaps from parent to child
   return pid;
@@ -331,6 +363,70 @@ void releasevm(struct proc *p)
 }
 */
 
+int wunmap(uint addr)
+{
+  struct proc *p = myproc();
+  struct mmap_region *mmap = 0;
+
+  int found = 0;
+
+  // Find the memory region in p->mmap
+  for (int i = 0; i < MAX_MMAPS; i++)
+  {
+    if (p->mmap[i].used && addr >= p->mmap[i].addr && addr < p->mmap[i].addr + p->mmap[i].length && found == 0)
+    {
+      mmap = &p->mmap[i];
+      found = 1;
+    }
+  }
+
+  // If no valid mmap region is found, return error
+  if (!mmap)
+  {
+    return FAILED;
+  }
+
+  // Deallocate the memory for the mmap region
+  for (uint page_start = PGROUNDDOWN(mmap->addr); page_start < mmap->addr + mmap->length; page_start += PGSIZE)
+  {
+    pte_t *pte = walkpgdir(p->pgdir, (void *)page_start, 0);
+
+    if (pte && (*pte & PTE_P))
+    {
+      uint physical_address = PTE_ADDR(*pte);
+
+      // If it's file-backed, write any dirty pages back to the file
+      if (!(mmap->flags & MAP_ANONYMOUS))
+      {
+        struct file *f = p->ofile[mmap->fd];
+        if (f)
+        {
+          int file_offset = page_start - mmap->addr;
+          f->off = file_offset;                        // Adjust file offset
+          filewrite(f, P2V(physical_address), PGSIZE); // Write back data
+        }
+      }
+
+      // Free the physical memory
+      kfree(P2V(physical_address));
+
+      // Clear the page table entry
+      *pte = 0;
+
+      // Invalidate the TLB entry
+      // invlpg((void *)page_start);
+    }
+  }
+
+  // Mark the mmap region as unused
+  mmap->used = 0;
+  mmap->n_loaded_pages = 0;
+
+  // Decrement total mmap count
+  p->total_mmaps--;
+
+  return SUCCESS;
+}
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait() to find out it exited.
@@ -350,6 +446,42 @@ void exit(void)
     {
       fileclose(curproc->ofile[fd]);
       curproc->ofile[fd] = 0;
+    }
+  }
+
+  // Handle memory mappings.
+  for (int i = 0; i < MAX_MMAPS; i++)
+  {
+    struct mmap_region *mmap = &curproc->mmap[i];
+    pte_t *pte = walkpgdir(curproc->pgdir, (void *)mmap->addr, 0);
+    if (!pte || !(*pte & PTE_P))
+    {
+      continue; // Couldn't find page table entry, skip to next mmap address
+    }
+
+    uint pa = PTE_ADDR(*pte); // Get the physical address of the page
+    if (*pte & PTE_COW)
+    { // Handle Copy-On-Write pages
+      // acquire(&refs_lock);
+
+      if (ref_counts[pa / PGSIZE] <= 1)
+      {
+        // If no other process is using the page, unmap it
+        uint va = (uint)P2V(pa); // Cast pointer to uint (virtual address)
+        int rc = wunmap(va);     // Call wunmap with virtual address
+        if (rc != SUCCESS)
+        {
+          // Handle failure to wunmap
+        }
+        // decref(pa); // Decrement reference count
+      }
+      else
+      {
+        // More than one reference, just decrement the reference count
+        // decref(pa);
+      }
+
+      // release(&refs_lock);
     }
   }
 

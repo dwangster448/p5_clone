@@ -105,7 +105,7 @@ extern int sys_write(void);
 extern int sys_uptime(void);
 extern int wmap(void);
 extern int va2pa(void);
-extern int wunmap(void);
+extern int sys_wunmap(void);
 extern int getwmapinfo(void);
 
 static int (*syscalls[])(void) = {
@@ -132,7 +132,7 @@ static int (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_wmap]    wmap,
 [SYS_va2pa]   va2pa,
-[SYS_wunmap]   wunmap,
+[SYS_wunmap]   sys_wunmap,
 [SYS_getwmapinfo]   getwmapinfo,
 };
 

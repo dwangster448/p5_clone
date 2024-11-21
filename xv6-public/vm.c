@@ -321,7 +321,7 @@ copyuvm(pde_t *pgdir, uint sz)
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
-  //char *mem;
+  // char *mem;
 
   if ((d = setupkvm()) == 0)
     return 0;
@@ -342,10 +342,12 @@ copyuvm(pde_t *pgdir, uint sz)
       // Mark the page as copy-on-write
       flags |= PTE_COW;
       flags &= ~PTE_W;
+      lcr3(V2P(pgdir));
 
       // Update the parent PTE to reflect COW
       *pte |= PTE_COW;
       *pte &= ~PTE_W;
+      lcr3(V2P(pgdir));
     }
 
     // cprintf("pid(%d)\n", myproc()->pid);
@@ -366,21 +368,44 @@ copyuvm(pde_t *pgdir, uint sz)
     // else
     // {
     // Increment the reference count for the physical page
-    incref(pa); // Increment reference count (incref is assumed)
+    // acquire(&refs_lock);
+    // Increment reference count (incref is assumed)
+    // release(&refs_lock);
+
+    *pte |= PTE_COW;
+    *pte &= ~PTE_W;
+    // }
+    lcr3(V2P(pgdir));
+
+    // Debug: Log parent's updated PTE
+    //cprintf("Parent: VA %p -> PA %p, Flags: %x\n", i, pa, PTE_FLAGS(*pte));
 
     // Map the same physical page in the child with updated flags
     if (mappages(d, (void *)i, PGSIZE, pa, flags) < 0)
     {
-      decref(pa);
+      // acquire(&refs_lock);
+      // release(&refs_lock);
       goto bad;
     }
+    incref(pa);
+
+    // Debug: Log child's PTE after mapping
+    // pte_t *child_pte = walkpgdir(d, (void *)i, 0);
+    // if (child_pte == 0)
+    // {
+    //   cprintf("Child PTE missing for VA %p\n", i);
     // }
-    lcr3(V2P(pgdir));
+    // else
+    // {
+    //   cprintf("Child: VA %p -> PA %p, Flags: %x\n", i, pa, PTE_FLAGS(*child_pte));
+    // }
   }
+  lcr3(V2P(pgdir));
   return d;
 
 bad:
-  freevm(d);
+  //   //freevm(d);
+  lcr3(V2P(pgdir));
   return 0;
 }
 

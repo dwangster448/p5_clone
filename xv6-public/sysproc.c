@@ -231,30 +231,36 @@ uint wmap(void)
 uint va2pa(void)
 {
   int va;
-  // use a argint here to retrieve int n argument
+
+  // Fetch the virtual address from arguments
   if (argint(0, &va) < 0)
   {
-    return FAILED; // Failed fetching value to integer
+    return FAILED; // Failed to retrieve argument
   }
 
-  uint pt_index = va & 0xFFFFF000;
+  uint page_offset = va & 0xFFF;         // Offset within the page
+  uint page_base = PGROUNDDOWN(va);      // Align VA to page boundary
 
-  uint offset = va & 0x00000FFF;
-
-  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)pt_index, 0); // TODO check pde_t pte_t type check
-
-  // cprintf("pte:%d\n", &pte);
-
-  if (pte == 0 || !(*pte & PTE_P)) // second condition checks if pte present bit is valid, if invalid means pte is not set and no physical mapping
+  // Fetch the PTE for the given VA
+  pte_t *pte = walkpgdir(myproc()->pgdir, (void *)page_base, 0); 
+  if (pte == 0 || !(*pte & PTE_P)) 
   {
+    // PTE is not present or invalid
     return FAILED;
   }
-  uint physical_address = *pte + offset;
+
+  // Extract the physical address from the PTE
+  uint physical_address = PTE_ADDR(*pte) + page_offset;
+
+  // Debug prints for verification
+  // cprintf("VA: %p -> PA: %p, PTE: %p, Flags: %x\n", 
+  //         va, physical_address, *pte, PTE_FLAGS(*pte));
 
   return physical_address;
 }
 
-int wunmap(void)
+
+int sys_wunmap(void)
 {
   uint addr;
   int int_addr;
@@ -272,67 +278,69 @@ int wunmap(void)
     return FAILED;
   }
 
-  struct proc *p = myproc();
-  struct mmap_region *mmap = 0;
+  int rc = wunmap(addr);
+  return rc;
+  // struct proc *p = myproc();
+  // struct mmap_region *mmap = 0;
 
-  int found = 0;
+  // int found = 0;
 
-  // Find the memory region in p->mmap
-  for (int i = 0; i < MAX_MMAPS; i++)
-  {
-    if (p->mmap[i].used && addr >= p->mmap[i].addr && addr < p->mmap[i].addr + p->mmap[i].length && found == 0)
-    {
-      mmap = &p->mmap[i];
-      found = 1;
-    }
-  }
+  // // Find the memory region in p->mmap
+  // for (int i = 0; i < MAX_MMAPS; i++)
+  // {
+  //   if (p->mmap[i].used && addr >= p->mmap[i].addr && addr < p->mmap[i].addr + p->mmap[i].length && found == 0)
+  //   {
+  //     mmap = &p->mmap[i];
+  //     found = 1;
+  //   }
+  // }
 
-  // If no valid mmap region is found, return error
-  if (!mmap)
-  {
-    return FAILED;
-  }
+  // // If no valid mmap region is found, return error
+  // if (!mmap)
+  // {
+  //   return FAILED;
+  // }
 
-  // Deallocate the memory for the mmap region
-  for (uint page_start = PGROUNDDOWN(mmap->addr); page_start < mmap->addr + mmap->length; page_start += PGSIZE)
-  {
-    pte_t *pte = walkpgdir(p->pgdir, (void *)page_start, 0);
+  // // Deallocate the memory for the mmap region
+  // for (uint page_start = PGROUNDDOWN(mmap->addr); page_start < mmap->addr + mmap->length; page_start += PGSIZE)
+  // {
+  //   pte_t *pte = walkpgdir(p->pgdir, (void *)page_start, 0);
 
-    if (pte && (*pte & PTE_P))
-    {
-      uint physical_address = PTE_ADDR(*pte);
+  //   if (pte && (*pte & PTE_P))
+  //   {
+  //     uint physical_address = PTE_ADDR(*pte);
 
-      // If it's file-backed, write any dirty pages back to the file
-      if (!(mmap->flags & MAP_ANONYMOUS))
-      {
-        struct file *f = p->ofile[mmap->fd];
-        if (f)
-        {
-          int file_offset = page_start - mmap->addr;
-          f->off = file_offset;                        // Adjust file offset
-          filewrite(f, P2V(physical_address), PGSIZE); // Write back data
-        }
-      }
+  //     // If it's file-backed, write any dirty pages back to the file
+  //     if (!(mmap->flags & MAP_ANONYMOUS))
+  //     {
+  //       struct file *f = p->ofile[mmap->fd];
+  //       if (f)
+  //       {
+  //         int file_offset = page_start - mmap->addr;
+  //         f->off = file_offset;                        // Adjust file offset
+  //         filewrite(f, P2V(physical_address), PGSIZE); // Write back data
+  //       }
+  //     }
 
-      // Free the physical memory
-      kfree(P2V(physical_address));
+  //     // Free the physical memory
+  //     kfree(P2V(physical_address));
 
-      // Clear the page table entry
-      *pte = 0;
+  //     // Clear the page table entry
+  //     *pte = 0;
 
-      // Invalidate the TLB entry
-      //invlpg((void *)page_start);
-    }
-  }
+  //     // Invalidate the TLB entry
+  //     //invlpg((void *)page_start);
+  //   }
+  // }
 
-  // Mark the mmap region as unused
-  mmap->used = 0;
-  mmap->n_loaded_pages = 0;
+  // // Mark the mmap region as unused
+  // mmap->used = 0;
+  // mmap->n_loaded_pages = 0;
 
-  // Decrement total mmap count
-  p->total_mmaps--;
+  // // Decrement total mmap count
+  // p->total_mmaps--;
 
-  return SUCCESS;
+  // return SUCCESS;
 }
 
 int getwmapinfo(void)

@@ -53,6 +53,13 @@ int fileread_offset(struct file *f, char *buf, int n, int offset)
   return bytes_read;
 }
 
+extern struct
+{
+  struct spinlock lock;
+  int use_lock;
+  struct run *freelist;
+} kmem;
+
 // PAGEBREAK: 41
 void trap(struct trapframe *tf)
 {
@@ -117,50 +124,86 @@ void trap(struct trapframe *tf)
 
     // Find the PTE for the faulting address
     pte_t *pte = walkpgdir(p->pgdir, (void *)fault_addr, 0);
-    if (!pte || !(*pte & PTE_P)) {
-        // Invalid memory access
-        // cprintf("Segmentation Fault: Invalid page fault at 0x%x\n", fault_addr);
-        // p->killed = 1;
-        // break;
-        goto pagefault_default;
+    if (!pte || !(*pte & PTE_P))
+    {
+      // Invalid memory access
+      // cprintf("Segmentation Fault: Invalid page fault at 0x%x\n", fault_addr);
+      // p->killed = 1;
+      // break;
+      goto pagefault_default;
     }
 
-    if (*pte & PTE_COW) { // Handle Copy-On-Write
-        uint pa = PTE_ADDR(*pte);  // Get the physical address of the page
-        char *new_page;
+    // if (*pte & MAP_SHARED)
+    // {
+    //   // Shared page: Do not copy, just mark writable if needed
+    //   *pte |= PTE_W;
+    //   lcr3(V2P(myproc()->pgdir)); // Flush TLB
+    //   return;
+    // }
 
-        if (ref_counts[pa / PGSIZE] == 1) {
-            // Only one reference, modify the page directly
-            *pte |= PTE_W;       // Mark the page as writable
-            *pte &= ~PTE_COW;    // Clear the COW flag
-            lcr3(V2P(p->pgdir)); // Flush TLB
-            return;
-        } else {
-            // More than one reference, duplicate the page
-            new_page = kalloc(); // Allocate a new physical page
-            if (!new_page) {
-                cprintf("Page fault: Out of memory\n");
-                p->killed = 1;
-                break;
-            }
+    if (*pte & PTE_COW)
+    { // Handle Copy-On-Write
 
-            // Copy the content from the original page
-            memmove(new_page, (char *)P2V(pa), PGSIZE);
+      uint pa = PTE_ADDR(*pte); // Get the physical address of the page
+      char *new_page;
 
-            // Update the PTE to point to the new page
-            *pte = V2P(new_page) | PTE_FLAGS(*pte) | PTE_W; // New page is writable
-            *pte &= ~PTE_COW;                              // Clear the COW flag
-
-            // Update reference counts
-            decref(pa); // Decrement ref count of the original page
-            incref(V2P(new_page)); // Increment ref count for the new page
-
-            lcr3(V2P(p->pgdir)); // Flush TLB
-            return;
+      if (ref_counts[pa / PGSIZE] == 1)
+      {
+        // Only one reference, modify the page directly
+        *pte |= PTE_W;       // Mark the page as writable
+        *pte &= ~PTE_COW;    // Clear the COW flag
+        lcr3(V2P(p->pgdir)); // Flush TLB
+        return;
+      }
+      else
+      {
+        // More than one reference, duplicate the page
+        new_page = kalloc(); // Allocate a new physical page
+        if (!new_page)
+        {
+          cprintf("Page fault: Out of memory\n");
+          p->killed = 1;
+          break;
         }
+
+        // Copy contents from the old page to the new page
+        memmove(new_page, P2V(pa), PGSIZE);
+
+        // Update the PTE to point to the new page
+        *pte |= PTE_W;       // New page is writable
+        *pte &= ~PTE_COW;    // Clear the COW flag
+        lcr3(V2P(p->pgdir)); // Flush TLB
+
+        char *old = P2V(PTE_ADDR(*pte));
+
+        int flags = PTE_FLAGS(*pte);
+
+        *pte = 0;
+
+        struct proc *cp = myproc();
+        // page is now writable
+
+        flags |= PTE_W;
+        cprintf("Mapping %p to %x\n", (void *)fault_addr, V2P(new_page));
+        if (mappages(cp->pgdir, (char *)PGROUNDDOWN(fault_addr), PGSIZE, V2P(new_page), flags) < 0)
+        {
+          panic("mampages duplciate pages failed");
+        }
+        lcr3(V2P(p->pgdir)); // Flush TLB
+        // Copy the content from the original page
+        memmove(new_page, old, PGSIZE);
+
+        // Update reference counts
+        decref(pa); // Decrement ref count of the original page
+        // incref(V2P(new_page)); // Increment ref count for the new page
+
+        // cprintf("COW resolved: VA %p -> New PA %p, Flags: %x\n",
+        // fault_addr, V2P(new_page), flags);
+        return;
+      }
     }
 
-    pagefault_default:
+  pagefault_default:
     int found = 0;
 
     for (int i = 0; i < MAX_MMAPS; i++)
@@ -198,6 +241,8 @@ void trap(struct trapframe *tf)
           p->killed = 1;
           break;
         }
+
+        // incref(V2P(mem));
 
         // Map anonymous is not set, proceed to perform file back mapping with fd parameter: mmap->fd
         if (!(mmap->flags & MAP_ANONYMOUS))
@@ -248,7 +293,6 @@ void trap(struct trapframe *tf)
       break;
     } // kill the process
 
-  
   //  PAGEBREAK: 13
   default:
     if (myproc() == 0 || (tf->cs & 3) == 0)
